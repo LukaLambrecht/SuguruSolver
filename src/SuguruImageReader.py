@@ -6,7 +6,7 @@ import numpy as np
 import cv2
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
-
+import matplotlib.patches as patches
 
 
 class SuguruImageReader(object):
@@ -36,121 +36,147 @@ class SuguruImageReader(object):
 		self.image = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
 		self.image = np.where(self.image>128,0,1)
 		self.image = self.image.astype(np.uint8)
+		print('Loaded image {}'.format(imagefile))
 		if targetsize is not None:
 			self.image = cv2.resize(self.image, targetsize)
 			self.image = np.where(self.image>128,0,1)
+			print('Converted image to size {}'.format(targetsize))
+	
+	def layoutimage(self):
+		### get currently loaded image, but only line structures
+		if self.image is None: raise Exception('Current image is None')
+		if self.gridlines is None: raise Exception('Current gridlines is None')
+		horlines = self.gridlines[0]
+		verlines = self.gridlines[1]
+		nrows = len(horlines)-1
+		ncols = len(verlines)-1
+		margin = int((horlines[1]-horlines[0])/10)
+		lselfimage = np.copy(self.image)
+		for i in range(nrows):
+			for j in range(ncols):
+				lselfimage[horlines[i]+margin:horlines[i+1]-margin, verlines[j]+margin:verlines[j+1]-margin] = 0
+		return lselfimage
+	
+	def digitimage(self):
+		### get currently loaded image, but only digits
+		if self.image is None: raise Exception('Current image is None')
+		if self.gridlines is None: raise Exception('Current gridlines is None')
+		horlines = self.gridlines[0]
+		verlines = self.gridlines[1]
+		nrows = len(horlines)-1
+		ncols = len(verlines)-1
+		margin = int((horlines[1]-horlines[0])/10)
+		dselfimage = np.zeros(self.image.shape)
+		for i in range(nrows):
+			for j in range(ncols):
+				fragment = self.image[horlines[i]+margin:horlines[i+1]-margin, verlines[j]+margin:verlines[j+1]-margin]
+				dselfimage[horlines[i]+margin:horlines[i+1]-margin, verlines[j]+margin:verlines[j+1]-margin] = fragment
+		return dselfimage
 		
-	def drawimage(self):
+	def drawimage(self, doplot=True, onlylayout=False, onlydigits=False, invert=True, title=None, ticks=False):
 		### draw the currently loaded image for visual inspection
+		if self.image is None: raise Exception('Current image is None')
+		image = np.copy(self.image)
+		if onlylayout: image = self.layoutimage()
+		if onlydigits: image = self.digitimage()
+		if invert: image = np.where(image>0.5,0,1)
 		(fig,ax) = plt.subplots()
-		ax.imshow(self.image, cmap='gray')
-		ax.set_title('Loaded grid image')
-		ax.set_xticks([])
-		ax.set_yticks([])
-		plt.show(block=False)
+		ax.imshow(image, cmap='gray')
+		if title is not None: ax.set_title(title)
+		if not ticks:
+			ax.set_xticks([])
+			ax.set_yticks([])
+		if doplot: plt.show(block=False)
+		return (fig,ax)	
 		
-	def drawgridlines(self, extralines=None):
-		### draw currently loaded image with reconstructed grid lines
-		# input arguments:
-		# - lines: list of objects of the form (x1,y1,x2,y2)
-		#   (to be drawn in addition to grid lines)
-		
-		# convert self.image to colored image
-		cselfimage = np.dstack((self.image,self.image,self.image))
-		cselfimage = np.where(cselfimage>0.5,255,0)
-		cselfimage = cselfimage.astype(np.uint8)
-		# plot self.image
-		(fig,ax) = plt.subplots()
-		ax.imshow(cselfimage)
-		# draw all lines
-		thickness = 2
-		color = 'r'
-		style = '--'
-		plt.autoscale(enable=False)
-		if extralines is not None:
-			for line in extralines:
-				x1,y1,x2,y2 = line
-				ax.plot(x1, y1, x2, y2, linewidth=thickness, color=color, linestyle=style)
-		if self.gridlines is not None:
-			xmin = 0
-			xmax = self.image.shape[1]
-			for y in self.gridlines[0]:
-				ax.plot([xmin, xmax], [y, y], linewidth=thickness, color=color, linestyle=style)
-			ymin = 0
-			ymax = self.image.shape[0]
-			for x in self.gridlines[1]:
-				ax.plot([x, x], [ymin, ymax], linewidth=thickness, color=color, linestyle=style)
-		ax.set_title('Loaded grid image with reconstructed grid lines')
-		#ax.set_xticks([])
-		#ax.set_yticks([])
-		plt.show(block=False)
-		
-	def findgridlines(self, nprobes=7, threshold=0.5):
+	def findgridlines(self, nprobes=7, threshold=0.8, doplot=False):
 		### find the position of row and column lines
 		# returns:
 		# tuple of two lists, y-positions of horizontal lines and x-position of vertical lines
 		# (including outer lines)
-		if self.image is None:
-			raise Exception('Current image is None')
+		if self.image is None: raise Exception('Current image is None')
 		(imgheight,imgwidth) = self.image.shape
 		# define horizontal and vertical probe positions
-		horprobes = np.linspace(imgheight/4, imgheight*3/4, num=nprobes)
-		verprobes = np.linspace(imgwidth/4, imgwidth*3/4, num=nprobes)
-		# initialize masks
-		horlines = (self.image[:,0]>-1).nonzero()
-		verlines = (self.image[0,:]>-1).nonzero()
-		# make intersection with probes
-		for verprobe in verprobes:
-			horlines = np.intersect1d( horlines, (self.image[:,int(verprobe)]>threshold).nonzero() )
-		for horprobe in horprobes:
-			verlines = np.intersect1d( verlines, (self.image[int(horprobe),:]>threshold).nonzero() )
+		horprobes = np.linspace(imgheight/4, imgheight*3/4, num=nprobes).astype(int)
+		verprobes = np.linspace(imgwidth/4, imgwidth*3/4, num=nprobes).astype(int)
+		horlines = (np.sum(self.image[:,verprobes],axis=1)/nprobes > threshold).nonzero()[0]
+		verlines = (np.sum(self.image[horprobes,:],axis=0)/nprobes > threshold).nonzero()[0]
 		# reduce lines of non-unitiy thickness to single lines
-		filtered_horlines = []
-		filtered_verlines = []
-		for i in horlines:
-			if( i<imgheight/2.1 and i+1 in horlines ): continue
-			if( i>=imgheight/2.1 and i-1 in horlines): continue
-			filtered_horlines.append(i)
-		for i in verlines:
-			if( i<imgwidth/2.1 and i+1 in verlines ): continue
-			if( i>=imgwidth/2.1 and i-1 in verlines): continue
-			filtered_verlines.append(i)
+		filtered_horlines = reduceinds(horlines, threshold=3)
+		filtered_verlines = reduceinds(verlines, threshold=3)
+		gridlines = (filtered_horlines, filtered_verlines)
+		# make plots
+		if doplot:
+			(fig,ax) = self.drawimage(doplot=False)
+			# draw all lines
+			thickness = 2
+			color = 'r'
+			style = '--'
+			plt.autoscale(enable=False)
+			xmin = 0
+			xmax = self.image.shape[1]
+			for y in gridlines[0]:
+				ax.plot([xmin, xmax], [y, y], linewidth=thickness, color=color, linestyle=style)
+			ymin = 0
+			ymax = self.image.shape[0]
+			for x in gridlines[1]:
+				ax.plot([x, x], [ymin, ymax], linewidth=thickness, color=color, linestyle=style)
+			ax.set_title('Image with reconstructed grid lines')
 		# set and return the result
 		self.gridlines = (filtered_horlines, filtered_verlines)
 		return self.gridlines
 	
-	def findlayout(self):
+	def findlayout(self, doplot=True):
 		### find the layout of the grid by checking line thickness
 		# returns:
 		# numpy grid with layout
-		if self.image is None:
-			raise Exception('Current image is None')
-		if self.gridlines is None:
-			raise Exception('Current gridlines is None')
+		if self.image is None: raise Exception('Current image is None')
+		if self.gridlines is None: raise Exception('Current gridlines is None')
 		horlines = self.gridlines[0]
 		verlines = self.gridlines[1]
 		nrows = len(horlines)-1
 		ncols = len(verlines)-1
 		# make grids of edge thicknesses
+		halfwidth = int((horlines[1]-horlines[0])/10)
 		horedges = np.zeros((nrows-1,ncols))
 		for j in range(ncols):
 			xcoord = int((verlines[j]+verlines[j+1])/2.)
 			for i in range(nrows-1):
 				ycoord = horlines[i+1]
-				section = self.image[ycoord-5:ycoord+5,xcoord]
+				section = self.image[ycoord-halfwidth:ycoord+halfwidth,xcoord]
 				horedges[i,j] = np.sum(section)
 		veredges = np.zeros((nrows,ncols-1))
 		for i in range(nrows):
 			ycoord = int((horlines[i]+horlines[i+1])/2.)
 			for j in range(ncols-1):
 				xcoord = verlines[j+1]
-				section = self.image[ycoord,xcoord-5:xcoord+5]
+				section = self.image[ycoord,xcoord-halfwidth:xcoord+halfwidth]
 				veredges[i,j] = np.sum(section)
 		# find thickness threshold
-		# to do later, use hard-coded for now
-		#threshold = 1.5
 		widths = np.array(list(horedges.flatten()) + list(veredges.flatten()))
-		threshold = findthreshold(widths)
+		threshold = findthreshold(widths, doplot=doplot)
+		# make a plot with edge thicknesses
+		if doplot:
+			(fig,ax) = self.drawimage(doplot=False, onlylayout=True)
+			# write thickness of horizontal lines
+			for j in range(ncols):
+				xcoord = int((verlines[j]+verlines[j+1])/2.)
+				for i in range(nrows-1):
+					ycoord = horlines[i+1]
+					value = int(horedges[i,j])
+					color = 'r' if value>threshold else 'g'
+					ax.text(xcoord, ycoord-halfwidth, str(value), color=color,
+					  horizontalalignment='center')
+			# write thickness of vertical lines
+			for i in range(nrows):
+				ycoord = int((horlines[i]+horlines[i+1])/2.)
+				for j in range(ncols-1):
+					xcoord = verlines[j+1]
+					value = int(veredges[i,j])
+					color = 'r' if value>threshold else 'g'
+					ax.text(xcoord+halfwidth, ycoord, str(value), color=color,
+					 verticalalignment='center')
+			ax.set_title('Reconstructed line thickness')
 		# make edge structure
 		edges = np.zeros((nrows,ncols,4))
 		for i in range(nrows):
@@ -172,14 +198,12 @@ class SuguruImageReader(object):
 		self.layout = layout
 		return layout
 	
-	def finddigits(self):
+	def finddigits(self, doplot=True):
 		### find filled digits
 		# returns:
 		# numpy grid with digits (0 for no digit)
-		if self.image is None:
-			raise Exception('Current image is None')
-		if self.gridlines is None:
-			raise Exception('Current gridlines is None')
+		if self.image is None: raise Exception('Current image is None')
+		if self.gridlines is None: raise Exception('Current gridlines is None')
 		horlines = self.gridlines[0]
 		verlines = self.gridlines[1]
 		nrows = len(horlines)-1
@@ -197,9 +221,9 @@ class SuguruImageReader(object):
 			darray = darray.astype(np.uint8)
 			dimages.append(darray)
 		# loop over individual cells
+		margin = int((horlines[1]-horlines[0])/10)
 		for i in range(nrows):
 			for j in range(ncols):
-				margin = 5
 				imgcell = self.image[horlines[i]+margin:horlines[i+1]-margin, verlines[j]+margin:verlines[j+1]-margin]
 				fillfrac = np.sum(imgcell)/(imgcell.shape[0]*imgcell.shape[1])
 				# check if not filled
@@ -211,19 +235,61 @@ class SuguruImageReader(object):
 					overlaps[dindex] = np.sum(np.multiply(imgcell,dimage))
 				digit = np.argmax(overlaps)+1
 				grid[i,j] = digit
+		# make plot
+		if doplot:
+			(fig,ax) = self.drawimage(doplot=False, onlydigits=True)
+			# write thickness of horizontal lines
+			for j in range(ncols):
+				for i in range(nrows):
+					if grid[i,j]==0: continue
+					xcoord = verlines[j+1]
+					ycoord = horlines[i]
+					cellanchor = (verlines[j]+margin, horlines[i]+margin)
+					cellwidth = verlines[j+1]-verlines[j]-2*margin
+					cellheight = horlines[i+1]-horlines[i]-2*margin
+					cellbox = patches.Rectangle(cellanchor, cellwidth, cellheight, 
+								 linewidth=1, linestyle='--', edgecolor='r', facecolor='none')
+					ax.add_patch(cellbox)
+					ax.text(xcoord, ycoord, str(grid[i,j]), color='b',
+					 horizontalalignment='right', verticalalignment='top')
+			ax.set_title('Reconstructed digits')
 		self.grid = grid
 		return self.grid
 	
-	def findsuguru(self):
+	def findsuguru(self, doplot=False):
 		### summary function of all the above, reconstructing the full suguru
 		# returns:
 		# tuple of (grid array, layout array)
-		_ = self.findgridlines()
-		_ = self.finddigits()
-		_ = self.findlayout()
+		if doplot: _ = self.drawimage(title='Original image')
+		_ = self.findgridlines(doplot=doplot)
+		if doplot:
+			_ = self.drawimage(onlylayout=True, title='Layout-only image')
+			_ = self.drawimage(onlydigits=True, title='Digit-only image')
+		_ = self.finddigits(doplot=doplot)
+		_ = self.findlayout(doplot=doplot)
 		return (self.grid, self.layout)
 	
 
+def reduceinds(inds, threshold=1):
+	### reduce set of indices to mean of each subset
+	res = []
+	currentset = [inds[0]]
+	currentidx = 1
+	while True:
+		if( abs(inds[currentidx]-inds[currentidx-1])<threshold ):
+			currentset.append(inds[currentidx])
+		else:
+			res.append(int(np.mean(np.array(currentset))))
+			currentset = [inds[currentidx]]
+		if(currentidx == len(inds)-1):
+			res.append(int(np.mean(np.array(currentset))))
+			break
+		else:
+			currentidx += 1
+			continue
+	return res
+
+	
 def filllayout(edges):
 	### fill a suguru layout grid
 	# input arguments:
@@ -266,29 +332,43 @@ def filllayout(edges):
 	layout = layout - 1
 	return layout
 
-def findthreshold(widths):
+
+def findthreshold(widths, doplot=False):
 	### find thickness threshold
 	# input arguments:
 	# - widths: a 1D array with values for widths
 	# returns:
 	# threshold value separating small from big widths
-	#plt.figure()
-	#plt.hist(widths)
 	kmeans = KMeans(n_clusters=2).fit(widths.reshape(len(widths),1))
-	centers = kmeans.cluster_centers_
-	return np.mean(centers)
+	centers = sorted(kmeans.cluster_centers_.flatten())
+	threshold = np.mean(centers)
+	if doplot:
+		maxwidth = int(np.max(widths))
+		bins = np.linspace(-0.5,maxwidth+0.5,num=maxwidth+2)
+		fig,ax = plt.subplots()
+		ax.hist(widths, bins=bins)
+		ymax = ax.get_ylim()[1]
+		for i, center in enumerate(centers):
+			ax.axvline(x=center, color='b', linestyle='--')
+			ax.text(center-0.5, ymax*0.9, 'Cluster {} ({:.2f})'.format(i+1,center),
+		      color='b', verticalalignment='top', horizontalalignment='right')
+		ax.axvline(x=threshold, color='r', linestyle='--')
+		ax.text(threshold-0.5, ymax*0.8, 'Threshold ({:.2f})'.format(threshold),
+		      color='r', verticalalignment='top', horizontalalignment='right')
+		ax.set_xlabel('Line thickness (pixels)', fontsize=13)
+		ax.set_ylabel('Number of lines', fontsize=13)
+		ax.set_title('Line thickness thresholding', fontsize=13)
+	return threshold
 
 	
 		
 if __name__=='__main__':
 	# testing section
 	
-	filename = '../images/example_2.png'
+	filename = '../images/example_4.jpg'
 	
 	SIR = SuguruImageReader()
 	SIR.loadimage(filename)
-	SIR.findsuguru()
+	SIR.findsuguru(doplot=True)
 	print(SIR.grid)
 	print(SIR.layout)
-	SIR.drawimage()
-	SIR.drawgridlines()

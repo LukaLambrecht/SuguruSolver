@@ -506,8 +506,7 @@ class SuguruSolverGUI:
 			# reconstruct a Suguru instance from the selected image
 			reader = SuguruImageReader()
 			reader.loadimage(filename)
-			reader.findsuguru()
-			reader.drawgridlines()
+			reader.findsuguru(doplot=True)
 			self.suguru = Suguru()
 			self.suguru.initfromgrids(reader.layout, reader.grid)
 			nrows, ncols = self.suguru.layout.layout.shape
