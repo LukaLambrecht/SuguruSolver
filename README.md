@@ -19,8 +19,8 @@ For example, suppose we have the following input suguru:
 <img src="images/example_1.png"  width="300" height="300">
 
 This should be entered as follows in the SuguruSolver:  
-<img src="res/manual/step2.png"  width="250" height="250">
-<img src="res/manual/step3.png"  width="250" height="250">
+<img src="res/manual/step2.png?"  width="250" height="250">
+<img src="res/manual/step2.png?"  width="250" height="250">
 
 Then, press "Solve". If the solver was succesful, the following output appears:  
 <img src="res/manual/step4.png"  width="500" height="400">
@@ -37,7 +37,7 @@ For the example suguru above, the automatic reading gives the following output:
 <img src="res/manual/img4.png"  width="250" height="250">  
 
 Ultimately resulting in the (correct) input suguru:  
-<img src="res/manual/step1to3auto.png"  width="300" height="300">  
+<img src="res/manual/step1to3auto.png"  width="500" height="400">  
 
 ## How to download?
 Just to a regular clone from github, i.e. `git clone https://github.com/LukaLambrecht/SuguruSolver.git`
